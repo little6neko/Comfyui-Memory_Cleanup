@@ -110,15 +110,24 @@ class RAMCleanup:
         try:
             before_usage, before_available = self.get_ram_usage()
             system = platform.system()
+
+            # 如果系统是 Linux, 提前加载 Linux 下的 libc
+            libc = None
+            if system == "Linux":
+                try:
+                    libc = ctypes.CDLL("libc.so.6")
+                except:
+                    pass
             
             for attempt in range(retry_times):
                 if clean_file_cache:
                     try:
                         if system == "Windows":
                             ctypes.windll.kernel32.SetSystemFileCacheSize(-1, -1, 0)
-                        elif system == "Linux":
-                            subprocess.run(["sudo", "sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"], 
-                                          check=False, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+                        elif system == "Linux" and libc:
+                            # Linux 非 root 替代方案：使用 malloc_trim(0)
+                            # 这会将未使用的堆内存归还给 OS，比 drop_caches 对应用程序更有效且安全
+                            libc.malloc_trim(0)
                     except:
                         pass
                 
@@ -135,6 +144,10 @@ class RAMCleanup:
                                 ctypes.windll.kernel32.CloseHandle(handle)
                             except:
                                 continue
+                    elif system == "Linux":
+                        # Linux 下 Python 自带 gc，配合上面的 malloc_trim 已经足够
+                        # 这里的显式 gc.collect() 可以帮助触发内存释放
+                        gc.collect()
 
                 if clean_dlls:
                     try:
